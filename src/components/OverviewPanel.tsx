@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { fetchWithCache, invalidateCache } from '@/lib/clientCache';
@@ -43,11 +43,12 @@ interface OverviewPanelProps {
 }
 
 export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
-  const { user, impersonateEmployee, impersonating } = useAuth();
+  const { user, impersonateEmployee, impersonating, logout } = useAuth();
   const router = useRouter();
   
   // States
   const [attendanceToday, setAttendanceToday] = useState<any>(null);
+  const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
   const [stats, setStats] = useState({
     totalEmployees: 0,
@@ -77,6 +78,7 @@ export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
       const attLogs = await fetchWithCache('/api/attendance', {
         headers: impersonating ? { 'x-impersonate-employee': user?.employee_id || '' } : {}
       });
+      setAttendanceLogs(attLogs);
       const todayStr = getLocalDateStr();
       const todayRecord = attLogs.find((log: any) => {
         const d = new Date(log.date);
@@ -200,6 +202,57 @@ export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
     }
   };
 
+  const recentActivities = useMemo(() => {
+    if (!user) return [];
+    const list: { id: string; type: string; title: string; desc: string; date: Date; badge?: string }[] = [];
+
+    // 1. Process attendance logs
+    attendanceLogs.forEach((log: any) => {
+      const logDate = new Date(log.date);
+      const formattedDate = logDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+      
+      if (log.check_in) {
+        list.push({
+          id: `att-in-${log.id}`,
+          type: 'attendance_in',
+          title: 'Clocked In',
+          desc: `Started shift on ${formattedDate} at ${new Date(log.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}`,
+          date: new Date(log.check_in),
+          badge: log.status
+        });
+      }
+      if (log.check_out) {
+        list.push({
+          id: `att-out-${log.id}`,
+          type: 'attendance_out',
+          title: 'Clocked Out',
+          desc: `Completed shift on ${formattedDate} at ${new Date(log.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}`,
+          date: new Date(log.check_out),
+          badge: log.status
+        });
+      }
+    });
+
+    // 2. Process leave requests
+    myLeaves.forEach((leave: any) => {
+      const reqDate = leave.request_date ? new Date(leave.request_date) : new Date(leave.start_date);
+      const startStr = new Date(leave.start_date).toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const endStr = new Date(leave.end_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+      
+      list.push({
+        id: `leave-${leave.id}`,
+        type: 'leave',
+        title: `${leave.type} Leave Request`,
+        desc: `Requested: ${startStr} to ${endStr}`,
+        date: reqDate,
+        badge: leave.status
+      });
+    });
+
+    // Sort by date desc
+    return list.sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 5);
+  }, [attendanceLogs, myLeaves, user]);
+
   if (!user) return null;
 
   // View as Employee Dashboard (including impersonation views)
@@ -231,8 +284,48 @@ export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
           </div>
         </div>
 
+        {/* Quick Access Cards */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '16px',
+          marginBottom: '8px'
+        }}>
+          {[
+            { label: 'My Profile', desc: 'Personal & Job info', icon: UserCheck, color: 'var(--accent-cyan)', action: () => setActiveTab('profile') },
+            { label: 'My Attendance', desc: 'Visual Logs & Clock', icon: Clock, color: 'var(--success)', action: () => setActiveTab('attendance') },
+            { label: 'Leave Portal', desc: 'File requests', icon: Calendar, color: 'var(--warning)', action: () => setActiveTab('leave') },
+            { label: 'Payroll Portal', desc: 'Salary & Payslips', icon: IndianRupee, color: 'rgba(168, 85, 247, 1)', action: () => setActiveTab('payroll') }
+          ].map((card, idx) => {
+            const Icon = card.icon;
+            return (
+              <div 
+                key={idx}
+                className="glass-panel stat-card clickable-card"
+                onClick={card.action}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  padding: '16px',
+                  cursor: 'pointer',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--border-radius)',
+                  background: 'var(--bg-card)'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '600' }}>{card.label}</span>
+                  <Icon size={16} style={{ color: card.color }} />
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{card.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* Dashboard Grid */}
-        <div className="responsive-grid-1-1" style={{ marginBottom: '24px' }}>
+        <div className="responsive-grid-1-1" style={{ marginBottom: '0' }}>
           {/* Punch Console Card */}
           <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '20px', justifyContent: 'space-between' }}>
             <div>
@@ -387,6 +480,62 @@ export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Recent Activity / Alerts Feed */}
+        <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+          <div>
+            <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <UserCheck size={20} style={{ color: 'var(--accent-cyan)' }} />
+              Recent Activity & Alerts
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Timeline of your recent workspace activities and status changes.</p>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {recentActivities.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                No recent activity to show. Start check-in to begin logs!
+              </div>
+            ) : (
+              recentActivities.map((act: any) => (
+                <div key={act.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: 'var(--bg-app)',
+                  padding: '12px 16px',
+                  borderRadius: 'var(--border-radius)',
+                  border: '1px solid var(--border-color)',
+                  fontSize: '13px',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: act.type.startsWith('attendance') ? 'var(--accent-cyan)' : 'var(--warning)'
+                    }} />
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>{act.title}</strong>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '2px' }}>{act.desc}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {new Date(act.date).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(act.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </span>
+                    {act.badge && (
+                      <span className={`badge badge-${act.badge.toLowerCase().replace(' ', '')}`}>
+                        {act.badge}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

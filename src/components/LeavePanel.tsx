@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '@/context/AuthContext';
-import { CalendarRange, Check, X, FileText, Sparkles, MessageSquare } from 'lucide-react';
+import { CalendarRange, Check, X, FileText, Sparkles, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import CustomSelect from './ui/CustomSelect';
 import { fetchWithCache, invalidateCache } from '@/lib/clientCache';
 
@@ -21,8 +21,12 @@ export default function LeavePanel() {
   
   // States
   const [leaves, setLeaves] = useState<any[]>([]);
+  const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
+  // Calendar Navigation State for Leave Portal
+  const [calendarDate, setCalendarDate] = useState(new Date());
+
   // Leave Form
   const [leaveType, setLeaveType] = useState<'Paid' | 'Sick' | 'Unpaid'>('Paid');
   const [startDate, setStartDate] = useState('');
@@ -41,10 +45,13 @@ export default function LeavePanel() {
   const fetchLeaves = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchWithCache('/api/leaves', {
-        headers: impersonating ? { 'x-impersonate-employee': user?.employee_id || '' } : {}
-      });
-      setLeaves(Array.isArray(data) ? data : []);
+      const headers: Record<string, string> = impersonating ? { 'x-impersonate-employee': user?.employee_id || '' } : {};
+      const [leavesData, attendanceData] = await Promise.all([
+        fetchWithCache('/api/leaves', { headers }),
+        fetchWithCache('/api/attendance', { headers })
+      ]);
+      setLeaves(Array.isArray(leavesData) ? leavesData : []);
+      setAttendanceLogs(Array.isArray(attendanceData) ? attendanceData : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -55,6 +62,62 @@ export default function LeavePanel() {
   useEffect(() => {
     fetchLeaves();
   }, [fetchLeaves]);
+
+  // Pre-seed calendar date logs maps for visual markers
+  const attendanceLogsMap = useMemo(() => {
+    const map: { [key: string]: any } = {};
+    attendanceLogs.forEach(log => {
+      const d = new Date(log.date);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dayStr = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${dayStr}`;
+      map[dateStr] = log;
+    });
+    return map;
+  }, [attendanceLogs]);
+
+  // Calendar calculations
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDayOfWeek = new Date(year, month, 1).getDay();
+  const monthName = calendarDate.toLocaleString('default', { month: 'long' });
+
+  const prevMonth = () => setCalendarDate(new Date(year, month - 1, 1));
+  const nextMonth = () => setCalendarDate(new Date(year, month + 1, 1));
+
+  const getPaddedDayString = (day: number) => {
+    const mm = (month + 1).toString().padStart(2, '0');
+    const dd = day.toString().padStart(2, '0');
+    return `${year}-${mm}-${dd}`;
+  };
+
+  // Click on date cell to choose range
+  const handleCalendarDayClick = (dateStr: string) => {
+    const clickedDate = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (clickedDate < today) {
+      setFormError('Cannot select a past start date.');
+      return;
+    }
+    setFormError(null);
+    setFormSuccess(null);
+
+    if (!startDate || (startDate && endDate)) {
+      setStartDate(dateStr);
+      setEndDate('');
+    } else {
+      const start = new Date(startDate);
+      if (clickedDate < start) {
+        setStartDate(dateStr);
+      } else {
+        setEndDate(dateStr);
+      }
+    }
+  };
 
   // Submit Leave Request
   const handleApplyLeave = async (e: React.FormEvent) => {
@@ -173,94 +236,227 @@ export default function LeavePanel() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
-      {/* 1. APPLY LEAVE FORM (Employees & Impersonations only) */}
+      {/* 1. APPLY LEAVE FORM & CALENDAR PICKER (Employees & Impersonations only) */}
       {(user.role === 'employee' || impersonating) && (
-        <div className="responsive-grid-2-3">
-          
-          {/* Apply Leave Panel */}
-          <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div>
-              <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CalendarRange size={20} style={{ color: 'var(--accent-cyan)' }} />
-                Apply for Leave
-              </h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>File a new time-off application request.</p>
+        <>
+          <div className="responsive-grid-1-1" style={{ marginBottom: '24px' }}>
+            
+            {/* Apply Leave Panel */}
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <CalendarRange size={20} style={{ color: 'var(--accent-cyan)' }} />
+                  Apply for Leave
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>File a new time-off application request.</p>
+              </div>
+
+              {formError && (
+                <div style={{ color: 'var(--danger)', fontSize: '13px', background: 'var(--danger-bg)', padding: '8px 12px', borderRadius: '6px' }}>
+                  ⚠️ {formError}
+                </div>
+              )}
+              
+              {formSuccess && (
+                <div style={{ color: 'var(--success)', fontSize: '13px', background: 'var(--success-bg)', padding: '8px 12px', borderRadius: '6px' }}>
+                  ✓ {formSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleApplyLeave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Leave Type</label>
+                  <CustomSelect
+                    options={[
+                      { value: 'Paid', label: 'Paid Leave' },
+                      { value: 'Sick', label: 'Sick Leave' },
+                      { value: 'Unpaid', label: 'Unpaid Leave' }
+                    ]}
+                    value={leaveType}
+                    onChange={(val) => setLeaveType(val as 'Paid' | 'Sick' | 'Unpaid')}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <div className="form-group" style={{ flex: 1, margin: 0 }}>
+                    <label className="form-label">Start Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                  <div className="form-group" style={{ flex: 1, margin: 0 }}>
+                    <label className="form-label">End Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Remarks / Reason</label>
+                  <textarea
+                    placeholder="Reason for time-off request..."
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    className="form-input"
+                    rows={3}
+                    style={{ resize: 'none' }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="btn btn-primary"
+                  style={{ width: '100%', padding: '12px' }}
+                >
+                  {isSubmitting ? 'Filing Application...' : 'File Leave Request'}
+                </button>
+              </form>
             </div>
 
-            {formError && (
-              <div style={{ color: 'var(--danger)', fontSize: '13px', background: 'var(--danger-bg)', padding: '8px 12px', borderRadius: '6px' }}>
-                ⚠️ {formError}
-              </div>
-            )}
-            
-            {formSuccess && (
-              <div style={{ color: 'var(--success)', fontSize: '13px', background: 'var(--success-bg)', padding: '8px 12px', borderRadius: '6px' }}>
-                ✓ {formSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleApplyLeave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Leave Type</label>
-                <CustomSelect
-                  options={[
-                    { value: 'Paid', label: 'Paid Leave' },
-                    { value: 'Sick', label: 'Sick Leave' },
-                    { value: 'Unpaid', label: 'Unpaid Leave' }
-                  ]}
-                  value={leaveType}
-                  onChange={(val) => setLeaveType(val as 'Paid' | 'Sick' | 'Unpaid')}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div className="form-group" style={{ flex: 1, margin: 0 }}>
-                  <label className="form-label">Start Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="form-input"
-                  />
+            {/* Visual Month Navigation & Range Picker Calendar */}
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <CalendarRange size={20} style={{ color: 'var(--accent-cyan)' }} />
+                    Calendar Range Picker
+                  </h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Click to select start & end dates.</p>
                 </div>
-                <div className="form-group" style={{ flex: 1, margin: 0 }}>
-                  <label className="form-label">End Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="form-input"
-                  />
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button type="button" onClick={prevMonth} className="btn btn-secondary" style={{ padding: '6px' }}>
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span style={{ fontWeight: '700', minWidth: '100px', textAlign: 'center', fontSize: '13px' }}>
+                    {monthName} {year}
+                  </span>
+                  <button type="button" onClick={nextMonth} className="btn btn-secondary" style={{ padding: '6px' }}>
+                    <ChevronRight size={14} />
+                  </button>
                 </div>
               </div>
 
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Remarks / Reason</label>
-                <textarea
-                  placeholder="Reason for time-off request..."
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  className="form-input"
-                  rows={3}
-                  style={{ resize: 'none' }}
-                />
+              {/* Calendar Grid */}
+              <div className="calendar-grid">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                  <div key={day} className="calendar-header-day" style={{ fontSize: '11px', paddingBottom: '4px' }}>{day}</div>
+                ))}
+
+                {/* Empty offset days */}
+                {Array.from({ length: startDayOfWeek }).map((_, idx) => (
+                  <div key={`offset-${idx}`} className="calendar-day empty"></div>
+                ))}
+
+                {/* Month Days */}
+                {Array.from({ length: daysInMonth }).map((_, idx) => {
+                  const day = idx + 1;
+                  const dateStr = getPaddedDayString(day);
+                  const attRecord = attendanceLogsMap[dateStr];
+                  
+                  // Check if this date is inside the currently selected start/end range
+                  const isStart = startDate === dateStr;
+                  const isEnd = endDate === dateStr;
+                  const inRange = startDate && endDate && new Date(dateStr) > new Date(startDate) && new Date(dateStr) < new Date(endDate);
+                  
+                  const isPast = new Date(dateStr) < new Date(new Date().setHours(0,0,0,0));
+
+                  let cellBg = 'transparent';
+                  let cellBorder = '1px solid var(--border-color)';
+                  let cellColor = 'var(--text-primary)';
+
+                  if (isStart || isEnd) {
+                    cellBg = 'var(--accent-cyan)';
+                    cellColor = '#ffffff';
+                    cellBorder = '1px solid var(--accent-cyan)';
+                  } else if (inRange) {
+                    cellBg = 'var(--accent-glow)';
+                    cellBorder = '1px solid rgba(6, 182, 212, 0.2)';
+                  } else if (isPast) {
+                    cellColor = 'var(--text-muted)';
+                  }
+
+                  return (
+                    <div 
+                      key={day} 
+                      onClick={() => !isPast && handleCalendarDayClick(dateStr)}
+                      className="calendar-day"
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '4px 2px',
+                        minHeight: '48px',
+                        cursor: isPast ? 'not-allowed' : 'pointer',
+                        background: cellBg,
+                        border: cellBorder,
+                        color: cellColor,
+                        borderRadius: '4px',
+                        opacity: isPast ? 0.4 : 1,
+                        position: 'relative'
+                      }}
+                      title={attRecord ? `Attendance: ${attRecord.status}` : 'No Attendance Record'}
+                    >
+                      <span style={{ fontSize: '12px', fontWeight: '600' }}>{day}</span>
+                      
+                      {/* Small Dot / Marker for past attendance */}
+                      {attRecord && (
+                        <span style={{
+                          width: '5px',
+                          height: '5px',
+                          borderRadius: '50%',
+                          background: attRecord.status === 'Present' ? 'var(--success)' : attRecord.status === 'Absent' ? 'var(--danger)' : attRecord.status === 'Half Day' ? 'var(--warning)' : 'var(--info)',
+                          position: 'absolute',
+                          bottom: '4px'
+                        }}></span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="btn btn-primary"
-                style={{ width: '100%', padding: '12px' }}
-              >
-                {isSubmitting ? 'Filing Application...' : 'File Leave Request'}
-              </button>
-            </form>
+              {/* Attendance Legend & Range Indicator */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderTop: '1px solid var(--border-color)',
+                paddingTop: '12px',
+                fontSize: '11px',
+                color: 'var(--text-secondary)',
+                marginTop: '4px'
+              }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--success)' }}></span> Present
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--danger)' }}></span> Absent
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--info)' }}></span> Leave
+                  </span>
+                </div>
+                <div style={{ fontWeight: '600', color: 'var(--accent-cyan)' }}>
+                  {startDate ? `${startDate} ${endDate ? `to ${endDate}` : '(Start Chosen)'}` : 'Select dates'}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Leaves History log */}
-          <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Leaves History log (Full Width) */}
+          <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
             <div>
               <h3 style={{ fontSize: '18px' }}>Leave Status Board</h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Monitor status updates on time-off requests.</p>
@@ -309,7 +505,7 @@ export default function LeavePanel() {
               )}
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* 2. LEAVE APPROVAL QUEUE (HR Administrators only) */}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { User, Phone, MapPin, Briefcase, FileText, Image as ImageIcon, ShieldAlert, Key } from 'lucide-react';
@@ -54,6 +54,87 @@ export default function ProfilePanel() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // New States for Salary and Documents
+  const [employeeDetails, setEmployeeDetails] = useState<any>(null);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [docName, setDocName] = useState('');
+  const [docUrl, setDocUrl] = useState('');
+  const [isAddingDoc, setIsAddingDoc] = useState(false);
+
+  // Fetch full details including salary fields
+  useEffect(() => {
+    if (user) {
+      fetch(`/api/employees/${user.employee_id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && !data.error) {
+            setEmployeeDetails(data);
+          }
+        })
+        .catch(err => console.error(err));
+    }
+  }, [user]);
+
+  // Fetch documents list
+  const fetchDocuments = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(`/api/employees/${user.employee_id}/documents`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setDocuments(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const handleAddDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docName || !docUrl || !user) return;
+    setIsAddingDoc(true);
+    try {
+      const res = await fetch(`/api/employees/${user.employee_id}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: docName, url: docUrl })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDocName('');
+        setDocUrl('');
+        fetchDocuments();
+      } else {
+        alert(data.error || 'Failed to add document');
+      }
+    } catch (err) {
+      alert('Error adding document');
+    } finally {
+      setIsAddingDoc(false);
+    }
+  };
+
+  const handleDeleteDocument = async (docId: number) => {
+    if (!user || !window.confirm('Are you sure you want to delete this document?')) return;
+    try {
+      const res = await fetch(`/api/employees/${user.employee_id}/documents?document_id=${docId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        fetchDocuments();
+      } else {
+        alert(data.error || 'Failed to delete document');
+      }
+    } catch (err) {
+      alert('Error deleting document');
+    }
+  };
 
   // Pre-fill form when user details change
   useEffect(() => {
@@ -388,6 +469,156 @@ export default function ProfilePanel() {
             {isSaving ? 'Saving Changes...' : 'Save Profile Details'}
           </button>
         </form>
+
+        {/* Section: Salary Structure View */}
+        {employeeDetails && (
+          <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <Briefcase size={16} style={{ color: 'var(--accent-cyan)' }} />
+              <span style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+                Salary Structure (Read-Only)
+              </span>
+            </div>
+            
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: '12px'
+            }}>
+              {[
+                { label: 'Basic Salary', val: employeeDetails.base, color: 'var(--text-primary)' },
+                { label: 'HRA Allowance', val: employeeDetails.hra, color: 'var(--text-primary)' },
+                { label: 'DA Allowance', val: employeeDetails.da, color: 'var(--text-primary)' },
+                { label: 'Special Allowance', val: employeeDetails.special_allowance, color: 'var(--text-primary)' },
+                { label: 'LOP Rate (/day)', val: employeeDetails.lop_rate, color: 'var(--danger)' },
+                { 
+                  label: 'Gross Salary', 
+                  val: (
+                    parseFloat(employeeDetails.base || 0) +
+                    parseFloat(employeeDetails.hra || 0) +
+                    parseFloat(employeeDetails.da || 0) +
+                    parseFloat(employeeDetails.special_allowance || 0)
+                  ), 
+                  color: 'var(--accent-cyan)',
+                  bg: 'rgba(6, 182, 212, 0.05)',
+                  border: 'rgba(6, 182, 212, 0.2)'
+                }
+              ].map((item, idx) => (
+                <div key={idx} style={{
+                  background: item.bg || 'var(--bg-app)',
+                  border: `1px solid ${item.border || 'var(--border-color)'}`,
+                  borderRadius: 'var(--border-radius)',
+                  padding: '12px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '500', marginBottom: '4px' }}>{item.label}</div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: item.color }}>Rs. {parseFloat(item.val || 0).toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Section: Documents Repository */}
+        <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <FileText size={16} style={{ color: 'var(--accent-cyan)' }} />
+            <span style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+              Employee Documents Repository
+            </span>
+          </div>
+
+          {/* Document list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+            {documents.length === 0 ? (
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '12px', background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--border-color)', borderRadius: 'var(--border-radius)', textAlign: 'center' }}>
+                No corporate documents filed for this employee record.
+              </div>
+            ) : (
+              documents.map(doc => (
+                <div key={doc.id} style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'var(--bg-app)',
+                  padding: '12px 16px',
+                  borderRadius: 'var(--border-radius)',
+                  border: '1px solid var(--border-color)',
+                  fontSize: '13px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <FileText size={16} style={{ color: 'var(--text-muted)' }} />
+                    <div>
+                      <a href={doc.url} target="_blank" rel="noopener noreferrer" style={{ fontWeight: '600', color: 'var(--accent-cyan)', textDecoration: 'none' }} className="hover-underline">
+                        {doc.name}
+                      </a>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Filed on: {new Date(doc.uploaded_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Delete button only visible to HR and NOT impersonated */}
+                  {user.role === 'hr' && !impersonating && (
+                    <button 
+                      onClick={() => handleDeleteDocument(doc.id)}
+                      className="btn btn-secondary"
+                      style={{ padding: '4px 10px', fontSize: '11px', height: '26px', color: 'var(--danger)' }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Add document form (Only visible to HR and NOT impersonated) */}
+          {user.role === 'hr' && !impersonating && (
+            <form onSubmit={handleAddDocument} style={{
+              background: 'rgba(255, 255, 255, 0.01)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--border-radius)',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Add Corporate Document Link</div>
+              <div className="responsive-grid-1-1" style={{ gap: '12px' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Document Name (e.g. Offer Letter)"
+                    value={docName}
+                    onChange={(e) => setDocName(e.target.value)}
+                    className="form-input"
+                    style={{ height: '36px', fontSize: '13px' }}
+                  />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <input
+                    type="url"
+                    required
+                    placeholder="Document URL link"
+                    value={docUrl}
+                    onChange={(e) => setDocUrl(e.target.value)}
+                    className="form-input"
+                    style={{ height: '36px', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+              <button 
+                type="submit" 
+                disabled={isAddingDoc}
+                className="btn btn-primary"
+                style={{ width: 'fit-content', padding: '6px 16px', fontSize: '12px', alignSelf: 'flex-end' }}
+              >
+                {isAddingDoc ? 'Filing Document...' : 'Add Document'}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

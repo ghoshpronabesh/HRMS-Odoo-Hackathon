@@ -18,8 +18,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const employeeRes = await query(
-      `SELECT id, employee_id, name, email, role, department, designation, address, phone, profile_pic, join_date, status 
-       FROM employees WHERE employee_id = $1`,
+      `SELECT e.id, e.employee_id, e.name, e.email, e.role, e.department, e.designation, e.address, e.phone, e.profile_pic, e.join_date, e.status,
+              s.base, s.hra, s.da, s.special_allowance, s.lop_rate
+       FROM employees e
+       LEFT JOIN salary_structures s ON e.employee_id = s.employee_id
+       WHERE e.employee_id = $1`,
       [targetEmployeeId]
     );
 

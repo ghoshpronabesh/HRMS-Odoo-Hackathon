@@ -75,6 +75,14 @@ export async function initDb() {
       special_allowance DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       lop_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00
     );
+
+    CREATE TABLE IF NOT EXISTS employee_documents (
+      id SERIAL PRIMARY KEY,
+      employee_id VARCHAR(50) REFERENCES employees(employee_id) ON DELETE CASCADE,
+      name VARCHAR(100) NOT NULL,
+      url TEXT NOT NULL,
+      uploaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
   `;
 
   console.log('Initializing database tables...');
