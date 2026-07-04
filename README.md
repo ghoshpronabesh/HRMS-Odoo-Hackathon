@@ -1,6 +1,6 @@
-# 🐧 Ice Penguin HR (Enterprise HRMS Portal)
+# !ce Penguin HR (Enterprise HRMS Portal)
 
-Ice Penguin HR is a premium, state-of-the-art Enterprise Human Resource Management System (HRMS) designed for modern workplaces. Built on a performant, high-contrast, glassmorphic layout, it delivers robust dashboard statistics, attendance tracking, leave request processing, payroll configuration, and secure credential management.
+!ce Penguin HR is a premium, state-of-the-art Enterprise Human Resource Management System (HRMS) designed for modern workplaces. Built on a performant, high-contrast, glassmorphic layout, it delivers robust dashboard statistics, attendance tracking, leave request processing, payroll configuration, and secure credential management.
 
 ---
 
