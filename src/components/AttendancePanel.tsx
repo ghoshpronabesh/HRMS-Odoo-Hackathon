@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { fetchWithCache } from '@/lib/clientCache';
 import { Calendar, ChevronLeft, ChevronRight, Search, Clock, ListFilter } from 'lucide-react';
 import CustomSelect from './ui/CustomSelect';
 
@@ -24,13 +25,10 @@ export default function AttendancePanel() {
   const fetchAttendance = useCallback(async () => {
     setLoading(true);
     try {
-      const attRes = await fetch('/api/attendance', {
+      const data = await fetchWithCache('/api/attendance', {
         headers: impersonating ? { 'x-impersonate-employee': user?.employee_id || '' } : {}
       });
-      if (attRes.ok) {
-        const data = await attRes.json();
-        setLogs(Array.isArray(data) ? data : []);
-      }
+      setLogs(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
     } finally {

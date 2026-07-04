@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { fetchWithCache, invalidateCache } from '@/lib/clientCache';
 import { Users, Search, UserPlus, Edit3, Power, UserCheck } from 'lucide-react';
 
 function LinearLoader() {
@@ -21,11 +22,8 @@ export default function EmployeePanel() {
   const fetchEmployees = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/employees');
-      if (res.ok) {
-        const data = await res.json();
-        setEmployees(Array.isArray(data) ? data : []);
-      }
+      const data = await fetchWithCache('/api/employees');
+      setEmployees(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -68,6 +66,7 @@ export default function EmployeePanel() {
         })
       });
       if (res.ok) {
+        invalidateCache('/api/employees');
         fetchEmployees();
       }
     } catch (err) {

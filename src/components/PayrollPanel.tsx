@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { fetchWithCache } from '@/lib/clientCache';
 import { CreditCard, Printer, Search, Edit3, IndianRupee, Calculator } from 'lucide-react';
 
 function LinearLoader() {
@@ -21,13 +22,10 @@ export default function PayrollPanel() {
   const fetchPayroll = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/payroll', {
+      const data = await fetchWithCache('/api/payroll', {
         headers: impersonating ? { 'x-impersonate-employee': user?.employee_id || '' } : {}
       });
-      if (res.ok) {
-        const data = await res.json();
-        setPayrollData(data);
-      }
+      setPayrollData(data);
     } catch (err) {
       console.error(err);
     } finally {

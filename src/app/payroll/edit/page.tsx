@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { invalidateCache } from '@/lib/clientCache';
 import DashboardLayout from '@/components/DashboardLayout';
 import { IndianRupee } from 'lucide-react';
 
@@ -87,6 +88,7 @@ function EditSalaryForm() {
       setIsSubmitting(false);
 
       if (res.ok && data.success) {
+        invalidateCache('/api/payroll');
         router.push('/payroll');
       } else {
         setErrorMsg(data.error || 'Failed to update salary configuration.');

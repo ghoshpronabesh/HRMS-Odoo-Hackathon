@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { fetchWithCache, invalidateCache } from '@/lib/clientCache';
 import { Clock, Calendar, ShieldCheck, HelpCircle, Users, ClipboardCheck, IndianRupee, ArrowRight, UserCheck } from 'lucide-react';
 
 function CountUp({ value, duration = 1000 }: { value: number; duration?: number }) {
@@ -73,30 +74,24 @@ export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
   const fetchEmployeeData = useCallback(async () => {
     try {
       // 1. Get today's attendance status
-      const attRes = await fetch('/api/attendance', {
+      const attLogs = await fetchWithCache('/api/attendance', {
         headers: impersonating ? { 'x-impersonate-employee': user?.employee_id || '' } : {}
       });
-      if (attRes.ok) {
-        const attLogs = await attRes.json();
-        const todayStr = getLocalDateStr();
-        const todayRecord = attLogs.find((log: any) => {
-          const d = new Date(log.date);
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          return `${y}-${m}-${day}` === todayStr;
-        });
-        setAttendanceToday(todayRecord || null);
-      }
+      const todayStr = getLocalDateStr();
+      const todayRecord = attLogs.find((log: any) => {
+        const d = new Date(log.date);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}` === todayStr;
+      });
+      setAttendanceToday(todayRecord || null);
 
       // 2. Get my leaves for status checklist
-      const leaveRes = await fetch('/api/leaves', {
+      const leaveData = await fetchWithCache('/api/leaves', {
         headers: impersonating ? { 'x-impersonate-employee': user?.employee_id || '' } : {}
       });
-      if (leaveRes.ok) {
-        const leaveData = await leaveRes.json();
-        setMyLeaves(leaveData.slice(0, 5)); // Keep last 5 requests
-      }
+      setMyLeaves(leaveData.slice(0, 5)); // Keep last 5 requests
     } catch (err) {
       console.error(err);
     }
@@ -106,39 +101,34 @@ export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
   const fetchAdminData = useCallback(async () => {
     try {
       // Get all employees list
-      const empRes = await fetch('/api/employees');
-      if (empRes.ok) {
-        const employees = await empRes.json();
-        setAllEmployees(employees);
-        
-        // Get all attendance to see who is present today
-        const attRes = await fetch('/api/attendance');
-        const allAtt = attRes.ok ? await attRes.json() : [];
-        const todayStr = getLocalDateStr();
-        const activePunches = allAtt.filter((log: any) => {
-          const d = new Date(log.date);
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          return `${y}-${m}-${day}` === todayStr;
-        });
-        setTodayPunches(activePunches);
+      const employees = await fetchWithCache('/api/employees');
+      setAllEmployees(employees);
+      
+      // Get all attendance to see who is present today
+      const allAtt = await fetchWithCache('/api/attendance');
+      const todayStr = getLocalDateStr();
+      const activePunches = allAtt.filter((log: any) => {
+        const d = new Date(log.date);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}` === todayStr;
+      });
+      setTodayPunches(activePunches);
 
-        const presentTodayCount = activePunches.filter((log: any) => log.status !== 'Absent').length;
+      const presentTodayCount = activePunches.filter((log: any) => log.status !== 'Absent').length;
 
-        // Get leave requests
-        const leaveRes = await fetch('/api/leaves');
-        const leaves = leaveRes.ok ? await leaveRes.json() : [];
-        const pending = leaves.filter((l: any) => l.status === 'Pending');
-        setLeaveRequests(pending.slice(0, 5));
+      // Get leave requests
+      const leaves = await fetchWithCache('/api/leaves');
+      const pending = leaves.filter((l: any) => l.status === 'Pending');
+      setLeaveRequests(pending.slice(0, 5));
 
-        setStats({
-          totalEmployees: employees.length,
-          presentToday: presentTodayCount,
-          pendingLeaves: pending.length,
-          unpaidLeavesMonth: leaves.filter((l: any) => l.type === 'Unpaid' && l.status === 'Approved').length
-        });
-      }
+      setStats({
+        totalEmployees: employees.length,
+        presentToday: presentTodayCount,
+        pendingLeaves: pending.length,
+        unpaidLeavesMonth: leaves.filter((l: any) => l.type === 'Unpaid' && l.status === 'Approved').length
+      });
     } catch (err) {
       console.error(err);
     }
@@ -198,6 +188,7 @@ export default function OverviewPanel({ setActiveTab }: OverviewPanelProps) {
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        invalidateCache('/api/attendance');
         await fetchEmployeeData();
       } else {
         setErrorMsg(data.error || 'Failed to register punch.');
